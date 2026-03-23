@@ -873,3 +873,88 @@
   border-color: #2b6cb0;
   color: #2b6cb0;
 }
+
+.optionalBadge {
+  font-size: 11px;
+  font-weight: 500;
+  color: #a0aec0;
+  background: #edf2f7;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+  letter-spacing: 0.3px;
+}
+
+/* Transport mode chips grid */
+.transportGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.transportChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #f7fafc;
+  color: #4a5568;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.transportChip:hover {
+  border-color: #a0aec0;
+  background: #edf2f7;
+}
+
+.transportChipSelected {
+  border-color: #2b6cb0;
+  background: #ebf8ff;
+  color: #2b6cb0;
+  box-shadow: 0 0 0 3px rgba(43, 108, 176, 0.1);
+}
+
+.transportChipIcon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Transport recommendation badge in result screen */
+.transportBadge {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: linear-gradient(135deg, #ebf8ff 0%, #e6fffa 100%);
+  border: 1.5px solid #bee3f8;
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+
+.transportIcon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.transportTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #2b6cb0;
+  margin: 0 0 4px 0;
+}
+
+.transportReason {
+  font-size: 13px;
+  color: #4a5568;
+  margin: 0;
+  line-height: 1.5;
+}

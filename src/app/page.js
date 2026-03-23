@@ -22,6 +22,15 @@ const PREFERENCES = [
   { id: "shopping",  label: "Shopping"      },
 ];
 
+// ── Transport mode options ────────────────────────────────────────────────────
+const TRANSPORT_MODES = [
+  { id: "any",   label: "No preference", icon: "🔀" },
+  { id: "flight",label: "Flight",        icon: "✈️" },
+  { id: "train", label: "Train",         icon: "🚆" },
+  { id: "bus",   label: "Bus",           icon: "🚌" },
+  { id: "car",   label: "Car / Self-drive", icon: "🚗" },
+];
+
 const TRACE_META = {
   thought:     { label: "Thought",     className: "traceThought"     },
   action:      { label: "Action",      className: "traceAction"      },
@@ -135,10 +144,7 @@ function ItineraryBody({ text }) {
 
 function ResultScreen({ result, onReset }) {
   const isSuccess = result.success;
-
-  // The itinerary text to display — success uses itinerary, failure uses suggestedItinerary
   const itineraryText = isSuccess ? result.itinerary : result.suggestedItinerary;
-
   const fmt = (n) => n?.toLocaleString("en-IN") ?? "—";
 
   return (
@@ -161,6 +167,23 @@ function ResultScreen({ result, onReset }) {
             </p>
           </div>
         </div>
+
+        {/* ── Transport recommendation (shown if available) ── */}
+        {result.recommendedTransport && (
+          <div className={s.transportBadge}>
+            <span className={s.transportIcon}>
+              {result.recommendedTransport.icon ?? "🚀"}
+            </span>
+            <div>
+              <p className={s.transportTitle}>
+                Recommended: {result.recommendedTransport.mode}
+              </p>
+              <p className={s.transportReason}>
+                {result.recommendedTransport.reason}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── Summary bar (success only) ── */}
         {isSuccess && (
@@ -271,19 +294,27 @@ function ResultScreen({ result, onReset }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const [locationMode, setLocationMode] = useState("text");
-  const [mapLocation, setMapLocation]   = useState(null);
-  const [isLoading, setIsLoading]       = useState(false);
-  const [agentResult, setAgentResult]   = useState(null);   // ← NEW
-  const [toast, setToast]               = useState(null);
+  const [locationMode, setLocationMode]   = useState("text");
+  const [mapLocation, setMapLocation]     = useState(null);
+  const [isLoading, setIsLoading]         = useState(false);
+  const [agentResult, setAgentResult]     = useState(null);
+  const [toast, setToast]                 = useState(null);
+
+  // ── Origin state (mirrors destination pattern) ───────────────────────────
+  const [originMode, setOriginMode]       = useState("text");   // "text" | "gps" | "map"
+  const [originMapLocation, setOriginMapLocation] = useState(null);
+  const [gpsLoading, setGpsLoading]       = useState(false);
+  const [originMapVisible, setOriginMapVisible]   = useState(false);
 
   const [formData, setFormData] = useState({
-    destination: "",
-    startDate:   "",
-    endDate:     "",
-    budget:      null,
-    travelers:   1,
-    preferences: [],
+    destination:   "",
+    origin:        "",           // text origin
+    startDate:     "",
+    endDate:       "",
+    budget:        null,
+    travelers:     1,
+    preferences:   [],
+    transportPref: "any",        // preferred transport mode id
   });
 
   const today = new Date().toISOString().split("T")[0];
@@ -335,11 +366,90 @@ export default function Home() {
     setField("travelers", Math.max(1, travelers + delta));
     setField("budget", null);
   }
+
+  // ── Origin helpers ───────────────────────────────────────────────────────
+
+  function switchOriginMode(mode) {
+    setOriginMode(mode);
+    setOriginMapLocation(null);
+    setField("origin", "");
+    if (mode === "map") setOriginMapVisible(true);
+    else setOriginMapVisible(false);
+  }
+
+  function handleOriginMapSelect(loc) {
+    setOriginMapLocation(loc);
+    setField("origin", loc.label);
+  }
+
+  async function handleGPSClick() {
+    if (!navigator.geolocation) {
+      showToast("Geolocation is not supported by your browser.");
+      return;
+    }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        // Reverse geocode to get a human-readable label
+        try {
+          const { data } = await axios.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            { params: { format: "json", lat, lon: lng }, headers: { "Accept-Language": "en" } }
+          );
+          const addr = data.address ?? {};
+          const label =
+            addr.city || addr.city_district || addr.town ||
+            addr.village || addr.county || addr.state ||
+            data.display_name?.split(",")[0] ||
+            `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+          setOriginMapLocation({ lat, lng, label });
+          setField("origin", label);
+        } catch {
+          const label = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+          setOriginMapLocation({ lat, lng, label });
+          setField("origin", label);
+        } finally {
+          setGpsLoading(false);
+        }
+      },
+      (err) => {
+        setGpsLoading(false);
+        if (err.code === 1) showToast("Location permission denied. Please allow access or type your city.");
+        else showToast("Could not get your location. Please try again or type it manually.");
+      },
+      { timeout: 10000 }
+    );
+  }
+
+  function clearOrigin() {
+    setOriginMode("text");
+    setOriginMapLocation(null);
+    setOriginMapVisible(false);
+    setField("origin", "");
+  }
+
+  // ── Origin: resolve label for payload ────────────────────────────────────
+
+  function resolvedOrigin() {
+    if (originMode === "text") return formData.origin.trim();
+    if (originMapLocation) return originMapLocation.label;
+    return "";
+  }
+
+  function resolvedOriginCoords() {
+    if (originMode !== "text" && originMapLocation) {
+      return { lat: originMapLocation.lat, lng: originMapLocation.lng };
+    }
+    return null;
+  }
+
   //////////////////////////////////////////////////////
-async function handleSubmit1() {
-  await axios.get("/api/agent");
-}
-//////////////////////////////////////////////////
+  async function handleSubmit1() {
+    await axios.get("/api/agent");
+  }
+  //////////////////////////////////////////////////
+
   async function handleSubmit() {
     const destination = locationMode === "text"
       ? formData.destination.trim()
@@ -350,15 +460,21 @@ async function handleSubmit1() {
     if (!formData.endDate)                 return showToast("Please select an end date.");
     if (formData.preferences.length === 0) return showToast("Please select at least one preference.");
 
+    const origin = resolvedOrigin();
+    if (!origin || origin.length < 3) return showToast("Please enter your starting point (city or location).");
+
     const payload = {
       destination,
-      coordinates:  mapLocation ? { lat: mapLocation.lat, lng: mapLocation.lng } : null,
-      startDate:    formData.startDate,
-      endDate:      formData.endDate,
+      coordinates:       mapLocation ? { lat: mapLocation.lat, lng: mapLocation.lng } : null,
+      origin:            origin || null,
+      originCoordinates: resolvedOriginCoords(),
+      startDate:         formData.startDate,
+      endDate:           formData.endDate,
       tripDays,
       budget,
       travelers,
-      preferences:  formData.preferences,
+      preferences:       formData.preferences,
+      transportPref:     formData.transportPref,
     };
 
     setIsLoading(true);
@@ -368,7 +484,7 @@ async function handleSubmit1() {
       console.log(data);
       setAgentResult(data);
     } catch (err) {
-      console.log(err.response)
+      console.log(err.response);
       const status = err?.response?.status;
       const apiMsg = err?.response?.data?.error ?? "";
 
@@ -378,7 +494,7 @@ async function handleSubmit1() {
       } else if (status === 502) {
         userMsg = "The AI service is temporarily unavailable. Please try again shortly.";
       } else if (status === 422) {
-        userMsg = apiMsg; // destination validation errors are already user-friendly
+        userMsg = apiMsg;
       } else if (status === 400) {
         userMsg = "Invalid request — please check your inputs and try again.";
       } else if (apiMsg) {
@@ -399,7 +515,7 @@ async function handleSubmit1() {
     return (
       <ResultScreen
         result={agentResult}
-        onReset={() => setAgentResult(null)}   // ← clears result, shows form again
+        onReset={() => setAgentResult(null)}
       />
     );
   }
@@ -459,9 +575,61 @@ async function handleSubmit1() {
           )}
         </section>
 
-        {/* 2. Dates */}
+        {/* 2. Starting Point */}
         <section className={s.section}>
-          <h2 className={s.sectionTitle}><span className={s.step}>2</span> Travel Dates</h2>
+          <h2 className={s.sectionTitle}><span className={s.step}>2</span> Starting Point</h2>
+          <p className={s.prefHint}>Where are you travelling from? The agent uses this to find transport options and factor in travel costs.</p>
+
+          {/* Mode toggle bar */}
+          <div className={s.toggleBar}>
+            <button type="button"
+              onClick={() => switchOriginMode("text")}
+              className={`${s.toggleBtn} ${originMode === "text" ? s.toggleActive : ""}`}
+            >✏️ Type it</button>
+            <button type="button"
+              onClick={() => handleGPSClick()}
+              className={`${s.toggleBtn} ${originMode === "gps" ? s.toggleActive : ""}`}
+              disabled={gpsLoading}
+            >
+              {gpsLoading ? "📡 Locating…" : "📍 Use my location"}
+            </button>
+            <button type="button"
+              onClick={() => switchOriginMode("map")}
+              className={`${s.toggleBtn} ${originMode === "map" ? s.toggleActive : ""}`}
+            >🗺️ Pick on map</button>
+          </div>
+
+          {/* Text input */}
+          {originMode === "text" && !originMapLocation && (
+            <input
+              type="text"
+              placeholder="e.g. Mumbai, Delhi, Pune…"
+              value={formData.origin}
+              onChange={(e) => setField("origin", e.target.value)}
+              className={s.textInput}
+            />
+          )}
+
+          {/* GPS / map result badge */}
+          {originMapLocation && (
+            <div className={s.mapBadge}>
+              {originMode === "gps" ? "📍" : "📌"} {originMapLocation.label}
+              <button type="button" className={s.clearBtn} onClick={clearOrigin}>✕</button>
+            </div>
+          )}
+
+          {/* Origin map (only when map mode chosen) */}
+          {originMode === "map" && !originMapLocation && (
+            <div className={s.mapWrapper}>
+              <MapSelector setLocation={handleOriginMapSelect} markerPos={originMapLocation} />
+              <p className={s.mapHint}>Click anywhere to set your starting point</p>
+            </div>
+          )}
+        </section>
+
+        {/* 3. Dates */}
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}><span className={s.step}>3</span> Travel Dates</h2>
           <div className={s.dateRow}>
             <DatePickerPopup label="Start Date" value={formData.startDate} minDate={today}
               onChange={(v) => { setField("startDate", v); if (formData.endDate && v > formData.endDate) setField("endDate", ""); setField("budget", null); }} />
@@ -473,9 +641,9 @@ async function handleSubmit1() {
           )}
         </section>
 
-        {/* 3. Travelers */}
+        {/* 4. Travelers */}
         <section className={s.section}>
-          <h2 className={s.sectionTitle}><span className={s.step}>3</span> Travelers</h2>
+          <h2 className={s.sectionTitle}><span className={s.step}>4</span> Travelers</h2>
           <label className={s.label}>Number of people</label>
           <div className={s.travelerRow}>
             <button type="button" className={s.counterBtn} onClick={() => handleTravelersChange(-1)}>−</button>
@@ -484,9 +652,9 @@ async function handleSubmit1() {
           </div>
         </section>
 
-        {/* 4. Budget */}
+        {/* 5. Budget */}
         <section className={s.section}>
-          <h2 className={s.sectionTitle}><span className={s.step}>4</span> Budget</h2>
+          <h2 className={s.sectionTitle}><span className={s.step}>5</span> Budget</h2>
           <div className={s.budgetDisplay}>
             <span className={s.budgetAmount}>₹{budget.toLocaleString("en-IN")}</span>
             <span className={s.budgetPerDay}>≈ ₹{perDayPerPerson.toLocaleString("en-IN")} / person / day</span>
@@ -504,9 +672,9 @@ async function handleSubmit1() {
           </p>
         </section>
 
-        {/* 5. Preferences */}
+        {/* 6. Trip Vibe */}
         <section className={s.section}>
-          <h2 className={s.sectionTitle}><span className={s.step}>5</span> Trip Vibe</h2>
+          <h2 className={s.sectionTitle}><span className={s.step}>6</span> Trip Vibe</h2>
           <p className={s.prefHint}>Pick all that apply</p>
           <div className={s.prefGrid}>
             {PREFERENCES.map((pref) => {
@@ -516,6 +684,29 @@ async function handleSubmit1() {
                   className={`${s.prefChip} ${selected ? s.prefChipSelected : ""}`}>
                   {selected && <span className={s.checkmark}>✓ </span>}
                   {pref.label}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 7. Transport Preference */}
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}><span className={s.step}>7</span> Travel Mode Preference</h2>
+          <p className={s.prefHint}>The agent will verify feasibility based on distance and budget, but will respect your preference.</p>
+          <div className={s.transportGrid}>
+            {TRANSPORT_MODES.map((mode) => {
+              const selected = formData.transportPref === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setField("transportPref", mode.id)}
+                  className={`${s.transportChip} ${selected ? s.transportChipSelected : ""}`}
+                >
+                  <span className={s.transportChipIcon}>{mode.icon}</span>
+                  <span>{mode.label}</span>
+                  {selected && <span className={s.checkmark}> ✓</span>}
                 </button>
               );
             })}

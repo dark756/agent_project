@@ -15,7 +15,7 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
  * @returns {Promise<string>}
  */
 export async function callGemini(systemPrompt, messages) {
-  const key = process.env.GEMINI_API_KEY;
+  var key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not set.");
 
   const contents = messages.map((m) => ({
@@ -87,6 +87,7 @@ console.log("ERROR DATA:", err.response?.data);
       );
 
       await sleep(waitMs);
+      key=process.env.GEMINI_API_KEY2;
     }
   }
 
