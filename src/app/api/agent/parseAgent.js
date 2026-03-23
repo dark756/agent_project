@@ -33,12 +33,17 @@ export function parseAgentResponse(text) {
     result.isFinalAnswer = true;
     result.finalAnswer   = finalMatch[1].trim();
 
-    // Extract TRANSPORT_RECOMMENDATION from within the final answer text
+    // Extract TRANSPORT_RECOMMENDATION from within the final answer text.
+    // The agent writes e.g. "TRANSPORT_RECOMMENDATION: Train recommended because..."
+    // We look for an explicit CHOSEN_MODE: line first; if absent we scan for the
+    // *first* mode keyword that appears as the subject (start) of the sentence,
+    // not just any keyword mentioned in a comparison.
     const transportMatch = result.finalAnswer.match(
-      /TRANSPORT_RECOMMENDATION:\s*(.+?)(?=\n\n|\n[A-Z]|$)/is
+      /TRANSPORT_RECOMMENDATION:\s*([\s\S]+?)(?=\n\n|\n##|\n\*\*[A-Z]|\nDay |\nItinerary|$)/i
     );
     if (transportMatch) {
       const raw = transportMatch[1].trim();
+
       const modeMap = {
         flight: { icon: "✈️", label: "Flight" },
         train:  { icon: "🚆", label: "Train"  },
@@ -47,12 +52,49 @@ export function parseAgentResponse(text) {
         cab:    { icon: "🚗", label: "Car / Cab" },
         drive:  { icon: "🚗", label: "Self-drive" },
       };
-      const detected = Object.entries(modeMap).find(([key]) =>
-        new RegExp(`\\b${key}`, "i").test(raw)
-      );
+
+      // Priority 1: explicit CHOSEN_MODE: <mode> line the agent may write
+      const chosenLineMatch = raw.match(/CHOSEN_MODE:\s*(\w+)/i);
+
+      // Priority 2: find the mode that is the grammatical subject —
+      // i.e. appears at the start of the text or right after "recommended:" / "using:"
+      // rather than in a comparison clause like "instead of flight"
+      const subjectPatterns = [
+        /^(flight|train|bus|car|cab|drive)\b/i,                        // starts the text
+        /\brecommended(?:\s+mode)?[:\s]+(flight|train|bus|car|cab|drive)\b/i,
+        /\busing\s+(flight|train|bus|car|cab|drive)\b/i,
+        /\bby\s+(flight|train|bus|car|cab|drive)\b/i,
+        /\btake\s+(?:a\s+)?(flight|train|bus|car|cab)\b/i,
+        /\b(flight|train|bus|car|cab|drive)\s+(?:is\s+)?recommended\b/i,
+      ];
+
+      let detectedKey = chosenLineMatch
+        ? chosenLineMatch[1].toLowerCase()
+        : null;
+
+      if (!detectedKey) {
+        for (const pat of subjectPatterns) {
+          const m = raw.match(pat);
+          if (m) {
+            // grab the captured group that is the mode word
+            detectedKey = (m[1] || m[0]).toLowerCase().trim();
+            break;
+          }
+        }
+      }
+
+      // Fallback: first mode keyword anywhere (original behaviour)
+      if (!detectedKey) {
+        const fallback = Object.keys(modeMap).find((key) =>
+          new RegExp(`\\b${key}`, "i").test(raw)
+        );
+        detectedKey = fallback ?? null;
+      }
+
+      const entry = detectedKey ? modeMap[detectedKey] : null;
       result.transportRecommendation = {
-        mode:   detected ? detected[1].label : "Mixed transport",
-        icon:   detected ? detected[1].icon  : "🚀",
+        mode:   entry ? entry.label : "Mixed transport",
+        icon:   entry ? entry.icon  : "🚀",
         reason: raw,
       };
     }

@@ -5,6 +5,40 @@ import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import axios from "axios";
 
+// ── Leaflet CSS is injected once, globally, on first mount ────────────────────
+// Putting this outside the component means multiple MapSelector instances
+// on the same page share a single injection — no race conditions, no
+// "document is not defined" crashes from concurrent SSR/hydration.
+
+let leafletCssInjected = false;
+
+function ensureLeafletCss() {
+  if (leafletCssInjected) return;
+  if (typeof document === "undefined") return;
+  if (!document.querySelector('link[href*="leaflet"]')) {
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+  }
+  leafletCssInjected = true;
+}
+
+// ── Default icon fix is also global — only needs to run once ─────────────────
+
+let leafletIconFixed = false;
+
+function fixLeafletIcon() {
+  if (leafletIconFixed) return;
+  delete L.Icon.Default.prototype._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+    iconUrl:       "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+    shadowUrl:     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  });
+  leafletIconFixed = true;
+}
+
 const redPinIcon = () =>
   L.divIcon({
     className: "",
@@ -25,7 +59,7 @@ const redPinIcon = () =>
         border:2px solid white;
       "></div>
     </div>`,
-    iconSize: [20, 28],
+    iconSize:   [20, 28],
     iconAnchor: [10, 28],
   });
 
@@ -38,56 +72,51 @@ function ClickHandler({ onMapClick }) {
   return null;
 }
 
+// ── instanceCounter gives every MapContainer a unique, stable id ─────────────
+// Using Math.random() inside useState initialiser is fine for uniqueness but
+// we also derive an instanceId so Leaflet never sees two containers with the
+// same DOM node.
+
+let instanceCounter = 0;
+
 export default function MapSelector({ setLocation, markerPos }) {
+  // Each instance gets its own counter-based id, created once on mount.
+  const [instanceId]   = useState(() => ++instanceCounter);
   const [leafletReady, setLeafletReady] = useState(false);
-  const [mapKey] = useState(() => Math.random().toString(36).slice(2));
-  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [isGeocoding,  setIsGeocoding]  = useState(false);
   const iconRef = useRef(null);
 
   useEffect(() => {
-    if (!document.querySelector('link[href*="leaflet"]')) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-      document.head.appendChild(link);
-    }
-    delete L.Icon.Default.prototype._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-    });
+    ensureLeafletCss();
+    fixLeafletIcon();
     iconRef.current = redPinIcon();
     setLeafletReady(true);
   }, []);
 
   async function handleMapClick({ lat, lng }) {
-    // Immediately drop the pin at clicked coords
     setLocation({ lat, lng, label: `${lat.toFixed(4)}, ${lng.toFixed(4)}` });
     setIsGeocoding(true);
     try {
       const { data } = await axios.get(
         "https://nominatim.openstreetmap.org/reverse",
         {
-          params: { format: "json", lat, lon: lng },
+          params:  { format: "json", lat, lon: lng },
           headers: { "Accept-Language": "en" },
         }
       );
-      // Build a readable place label from the response
-      const addr = data.address ?? {};
+      const addr  = data.address ?? {};
       const label =
-        addr.city ||
+        addr.city        ||
         addr.city_district ||
-        addr.town ||
-        addr.village ||
-        addr.county ||
-        addr.state ||
+        addr.town        ||
+        addr.village     ||
+        addr.county      ||
+        addr.state       ||
         data.display_name?.split(",")[0] ||
         `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-
       setLocation({ lat, lng, label });
     } catch {
-      // Geocoding failed — coordinates are still set, label stays as coords
+      // Geocoding failed — coordinates still set, label stays as coords
     } finally {
       setIsGeocoding(false);
     }
@@ -97,7 +126,7 @@ export default function MapSelector({ setLocation, markerPos }) {
     return (
       <div style={{
         height: 400, display: "flex", alignItems: "center",
-        justifyContent: "center", background: "#f7fafc", color: "#a0aec0", fontSize: 14
+        justifyContent: "center", background: "#f7fafc", color: "#a0aec0", fontSize: 14,
       }}>
         Loading map...
       </div>
@@ -106,15 +135,19 @@ export default function MapSelector({ setLocation, markerPos }) {
 
   return (
     <div style={{ position: "relative" }}>
+      {/*
+        key={instanceId} ensures React recreates the MapContainer DOM node
+        (rather than reusing it) if this instance is unmounted and remounted.
+        Leaflet throws "container reused" when it finds its internal _leaflet_id
+        on a DOM node it did not initialise — a fresh DOM node avoids this.
+      */}
       <MapContainer
-        key={mapKey}
+        key={instanceId}
         center={[20.5937, 78.9629]}
         zoom={5}
         style={{ height: 400, width: "100%" }}
       >
         <TileLayer
-          // attribution="&copy; OpenStreetMap"
-          // url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"//removed due to non english locations
           url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
           attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com">CARTO</a>'
         />
@@ -124,7 +157,6 @@ export default function MapSelector({ setLocation, markerPos }) {
         )}
       </MapContainer>
 
-      {/* Geocoding spinner overlaid on map */}
       {isGeocoding && (
         <div style={{
           position: "absolute", top: 8, right: 8, zIndex: 1000,

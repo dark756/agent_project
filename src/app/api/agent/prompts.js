@@ -38,7 +38,11 @@ TRANSPORT RULES:
   * Mountain/hilly terrain → note road conditions; prefer train or flight over bus for long distances
 - If the user stated a transport preference, respect it unless it is physically impossible (e.g. flight to a location with no airport — in that case explain clearly).
 - Always include the cost of travel from origin to destination AND return journey in ESTIMATED_COST.
-- Provide a TRANSPORT_RECOMMENDATION line in your Final Answer explaining why you chose that mode.
+- In your Final Answer, write a TRANSPORT_RECOMMENDATION block in this exact format:
+  TRANSPORT_RECOMMENDATION:
+  CHOSEN_MODE: <single word — flight | train | bus | car>
+  <one or two sentences explaining why this mode was chosen for this specific route and budget>
+- The CHOSEN_MODE must be the mode you are actually using in the itinerary. Do not mention other modes in the same sentence as CHOSEN_MODE.
 
 PLANNING RULES:
 - You have a strict budget of 5 LLM turns total. Be efficient.
@@ -58,9 +62,13 @@ PLANNING RULES:
 BUDGET UTILISATION RULE (CRITICAL):
 - The budget is not just a ceiling — it is the user's intended spend. Treat it as a target range.
 - Your plan MUST utilise at least 75% of the total budget. A plan using less than 75% is poor quality.
-- If your first-pass plan comes in well under budget, upgrade it: better hotel tier, more activities, nicer restaurants, or additional day trips — until you reach the 75–100% range.
-- Never default to the cheapest option. Match accommodation and activity quality to the budget level.
-- Use calculate() to check: if ESTIMATED_COST < budget * 0.75, you must upgrade the plan before finalising.`;
+- If your first-pass plan comes in well under budget, consider upgrades in this priority order:
+  1. TRANSPORT UPGRADE first — if you used train/bus and there is enough leftover budget, check whether upgrading to flight saves significant time and fits within budget. Search the flight price if you have not already, then decide.
+  2. ACCOMMODATION upgrade — move to a higher hotel tier if transport upgrade is not applicable or not worth it.
+  3. ACTIVITIES — add more experiences, day trips, or premium experiences matching the user's preferences.
+  4. DINING — upgrade to nicer restaurants or add a special dinner.
+- Never default to the cheapest option. Match quality to the budget level the user set.
+- Use calculate() to check: if ESTIMATED_COST < budget * 0.75, you must upgrade before finalising.`;
 
 export function buildGoalPrompt({
   destination, origin, originCoordinates, startDate, endDate, tripDays,

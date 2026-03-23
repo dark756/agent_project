@@ -16,8 +16,8 @@ import { getWeather } from "./weather";
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const MAX_LOOPS           = 2;   // max full planning attempts if over budget
-const MAX_TOOL_CALLS      = 7;   // safety cap on tool calls per loop
-const MAX_TOOL_CALL_TOTAL = 14;  // hard cap across entire request
+const MAX_TOOL_CALLS      = 5;   // safety cap on tool calls per loop
+const MAX_TOOL_CALL_TOTAL =10;  // hard cap across entire request
 
 // Minimum per-person spend to be considered a viable plan (INR)
 const MIN_FOOD_PER_PERSON_PER_DAY   = 300;
@@ -289,17 +289,25 @@ export async function POST(request) {
 
         // Check 2 — underutilising the budget
         if (cost < budget * 0.75) {
-          const minTarget = Math.round(budget * 0.75).toLocaleString("en-IN");
-          const pct       = Math.round((cost / budget) * 100);
+          const minTarget  = Math.round(budget * 0.75).toLocaleString("en-IN");
+          const pct        = Math.round((cost / budget) * 100);
+          const leftover   = budget - cost;
+          const canUpgradeTransport = distanceKm && distanceKm > 300 && leftover > 3000 * travelers;
+
+          const transportUpgradeLine = canUpgradeTransport
+            ? `- TRANSPORT UPGRADE (priority): You used a cheaper transport mode but there is ₹${leftover.toLocaleString("en-IN")} of unspent budget. Search for flight prices on this route if you have not already. If a flight fits within the remaining budget it will save significant travel time — upgrade to it and update Day 1 of the itinerary accordingly.\n`
+            : "";
+
           const nudge =
             `Your plan costs ₹${cost.toLocaleString("en-IN")} (${pct}% of the ₹${budget.toLocaleString("en-IN")} budget). ` +
             `This is too conservative — the user wants to spend their budget on a good trip.\n` +
-            `Please upgrade the plan to reach at least ₹${minTarget} (75% of budget) by:\n` +
+            `Unspent budget: ₹${leftover.toLocaleString("en-IN")}. Please upgrade the plan to reach at least ₹${minTarget} (75%) by:\n` +
+            transportUpgradeLine +
             `- Upgrading to a better hotel tier\n` +
             `- Adding more activities or day trips matching their preferences\n` +
             `- Including nicer restaurant options or a special dinner\n` +
             `- Adding local sightseeing or experiences\n` +
-            `Keep the same destination, dates, and travel mode. Just make it a better trip.`;
+            `Update TRANSPORT_RECOMMENDATION with CHOSEN_MODE if you change the transport mode.`;
 
           messages.push({ role: "model", content: llmResponse });
           messages.push({ role: "user",  content: nudge });

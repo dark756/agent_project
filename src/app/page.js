@@ -561,7 +561,11 @@ export default function Home() {
           )}
           {locationMode === "map" && (
             <div className={s.mapWrapper}>
-              <MapSelector setLocation={handleMapSelect} markerPos={mapLocation} />
+              {/* Unmount the map once a pin is chosen — keeps only one Leaflet
+                  instance alive at a time and avoids the "container reused" error */}
+              {!mapLocation && (
+                <MapSelector setLocation={handleMapSelect} markerPos={null} />
+              )}
               {mapLocation ? (
                 <div className={s.mapBadge}>
                   📌 {mapLocation.label}
@@ -618,10 +622,12 @@ export default function Home() {
             </div>
           )}
 
-          {/* Origin map (only when map mode chosen) */}
+          {/* Origin map — only mounted when map mode is active AND no location yet.
+               Passing markerPos={null} intentionally: the map unmounts on selection
+               so there is never a stale Leaflet container with a marker to sync. */}
           {originMode === "map" && !originMapLocation && (
             <div className={s.mapWrapper}>
-              <MapSelector setLocation={handleOriginMapSelect} markerPos={originMapLocation} />
+              <MapSelector setLocation={handleOriginMapSelect} markerPos={null} />
               <p className={s.mapHint}>Click anywhere to set your starting point</p>
             </div>
           )}
@@ -716,9 +722,9 @@ export default function Home() {
         <button type="button" onClick={handleSubmit} className={s.submitBtn}>
           Plan My Trip
         </button>
-        <button type="button" onClick={handleSubmit1} className={s.submitBtn}>
+        {/* <button type="button" onClick={handleSubmit1} className={s.submitBtn}>
           debug
-        </button>
+        </button> */}
       </div>
     </div>
   );
